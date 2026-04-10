@@ -588,30 +588,28 @@ function renderPlayerList(){
 }
 
 /* CALC PTS — écart basé sur le rang affiché (1er, 2e, 2e, 4e...) */
-function getSharedRanks(){
-  var sorted=players.slice().sort(function(a,b){return b.points-a.points||a.regOrder-b.regOrder});
+function getSharedRanks(playerSnapshot){
+  /* playerSnapshot = liste de joueurs avec leurs points à un instant T */
+  var list=playerSnapshot||players;
+  var sorted=list.slice().sort(function(a,b){return b.points-a.points||a.regOrder-b.regOrder});
   var sr={};
+  /* rn = rang courant (saute si pas d'ex-æquo, reste si ex-æquo) */
   var rn=1;
   for(var i=0;i<sorted.length;i++){
-    if(i>0&&sorted[i].points===sorted[i-1].points) sr[sorted[i].id]=sr[sorted[i-1].id];
-    else sr[sorted[i].id]=rn;
-    rn++;
+    if(i>0&&sorted[i].points===sorted[i-1].points){
+      sr[sorted[i].id]=sr[sorted[i-1].id]; /* même rang */
+    } else {
+      sr[sorted[i].id]=rn;
+    }
+    rn++; /* rn avance toujours d'1 pour sauter les rangs ex-æquo */
   }
   return sr;
 }
-function calcPts(wId,lId,ws,ls){
-  var sr=getSharedRanks();
-  var W=players.find(function(p){return p.id===wId});
-  var L=players.find(function(p){return p.id===lId});
-  if(!W||!L)return{w:4,l:0};
+
+function calcPtsWithRanks(wId,lId,ws,ls,sharedRanks){
+  var sr=sharedRanks||getSharedRanks();
   var wR=sr[wId]||1, lR=sr[lId]||1;
-  /* diff = rang_perdant - rang_gagnant
-     positif  → gagnant mieux classé (rang plus petit)
-     négatif  → gagnant moins bien classé (rang plus grand)
-     Exemple : 1er bat 4e → diff = 4-1 = +3
-               4e bat 1er → diff = 1-4 = -3
-     Avec ex-æquo 1er,2e,2e,4e,4e :
-       un 2e bat un 4e → diff = 4-2 = +2  ✓ */
+  /* diff positif = gagnant mieux classé, négatif = gagnant moins bien classé */
   var diff=lR-wR;
   var rp=settings.rankPts;
   var rpS=rp.slice().sort(function(a,b){return a.diff-b.diff});
@@ -626,14 +624,22 @@ function calcPts(wId,lId,ws,ls){
   return{w:base+bW,l:bL};
 }
 
-/* COMPUTE */
+function calcPts(wId,lId,ws,ls){
+  /* Utilisé pour prévisualisation (points actuels) */
+  return calcPtsWithRanks(wId,lId,ws,ls,getSharedRanks());
+}
+
+/* COMPUTE — rejoue les matchs dans l'ordre en recalculant les rangs à chaque étape */
 function recompute(){
   players.forEach(function(p){p.points=0;p.matches=0;p.dates=[]});
-  matches.slice().sort(function(a,b){return new Date(a.dateISO)-new Date(b.dateISO)}).forEach(function(m){
+  var sorted=matches.slice().sort(function(a,b){return new Date(a.dateISO)-new Date(b.dateISO)});
+  sorted.forEach(function(m){
     var W=players.find(function(p){return p.id===m.winnerId});
     var L=players.find(function(p){return p.id===m.loserId});
     if(!W||!L)return;
-    var pts=calcPts(m.winnerId,m.loserId,m.winnerScore,m.loserScore);
+    /* Calcul des rangs AVANT ce match (points actuels avant d'ajouter) */
+    var sr=getSharedRanks(players);
+    var pts=calcPtsWithRanks(m.winnerId,m.loserId,m.winnerScore,m.loserScore,sr);
     W.points+=pts.w;L.points+=pts.l;W.matches++;L.matches++;W.dates.push(m.dateISO);L.dates.push(m.dateISO);
   });
 }
